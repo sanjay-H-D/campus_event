@@ -24,22 +24,14 @@ class PaymentRepository:
             .where(Payment.id == payment_id)
         )
 
-    def get_by_order(self, order_id: str) -> Payment | None:
+    def get_pending(self, payment_id: int) -> Payment | None:
         return self.db.scalar(
             select(Payment)
             .options(
                 joinedload(Payment.booking).joinedload(Booking.student),
                 joinedload(Payment.event).joinedload(Event.college),
             )
-            .where(Payment.gateway_order_id == order_id)
-        )
-
-    def get_successful_by_gateway_payment(self, payment_id: str) -> Payment | None:
-        return self.db.scalar(
-            select(Payment).where(
-                Payment.gateway_payment_id == payment_id,
-                Payment.payment_status == "Successful",
-            )
+            .where(Payment.id == payment_id)
         )
 
     def get_for_booking(self, booking_id: int) -> Payment | None:

@@ -1,6 +1,3 @@
-import hashlib
-import hmac
-
 from .test_auth import admin_payload, participant_payload
 from .test_events import event_payload
 
@@ -17,67 +14,87 @@ def _participant_headers(client, email="payment-student@example.com"):
     return {"Authorization": f"Bearer {result.json()['access_token']}"}
 
 
-def test_payment_order_signature_receipt_and_access_control(client, monkeypatch):
-    secret = "payment-test-secret"
-    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_key")
-    monkeypatch.setenv("RAZORPAY_KEY_SECRET", secret)
-    monkeypatch.setattr(
-        "backend.services.payment_gateway.RazorpayGateway.create_order",
-        lambda self, amount_paise, receipt: {"id": "order_test_123"},
-    )
+def test_demo_payment_success_receipt_and_access_control(client):
     admin_headers = _admin_headers(client)
-    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1)).json()
+    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1, fee=125)).json()
     student_headers = _participant_headers(client)
 
-    order = client.post("/api/payments/create-order", headers=student_headers, json={"event_id": event["id"]})
-    assert order.status_code == 200
-    order_data = order.json()
-    signature = hmac.new(
-        secret.encode(), f"{order_data['order_id']}|pay_test_123".encode(), hashlib.sha256
-    ).hexdigest()
-    verified = client.post(
-        "/api/payments/verify",
+    created = client.post(
+        "/api/payments/create-demo-payment",
         headers=student_headers,
-        json={
-            "razorpay_order_id": order_data["order_id"],
-            "razorpay_payment_id": "pay_test_123",
-            "razorpay_signature": signature,
-        },
+        json={"event_id": event["id"]},
     )
-    assert verified.status_code == 200
-    assert verified.json()["payment_status"] == "Successful"
-    assert client.get("/api/payments/my-payments", headers=student_headers).json()[0]["payment_status"] == "Successful"
-    receipt = client.get(f"/api/participant/receipts/{order_data['payment_id']}/download", headers=student_headers)
+    assert created.status_code == 200
+    payment = created.json()
+    assert payment["amount"] == 125
+
+    simulated = client.post(
+        "/api/payments/simulate",
+        headers=student_headers,
+        json={"payment_id": payment["payment_id"], "outcome": "successful"},
+    )
+    assert simulated.status_code == 200
+    assert simulated.json()["payment_status"] == "Successful"
+    assert client.get(f"/api/events/{event['id']}").json()["available_seats"] == 0
+
+    history = client.get("/api/payments/my-payments", headers=student_headers)
+    assert history.status_code == 200
+    assert history.json()[0]["payment_reference"].startswith("DEMO-")
+    receipt = client.get(f"/api/participant/receipts/{payment['payment_id']}/download", headers=student_headers)
     assert receipt.status_code == 200 and receipt.content.startswith(b"%PDF")
-    assert client.get(f"/api/participant/receipts/{order_data['payment_id']}/download").status_code == 401
+    assert client.get(f"/api/participant/receipts/{payment['payment_id']}/download").status_code == 401
+
     participant_pdf = client.get(f"/api/admin/events/{event['id']}/participants/pdf", headers=admin_headers)
     assert participant_pdf.status_code == 200 and participant_pdf.content.startswith(b"%PDF")
     other_admin = _admin_headers(client, "other-payment-admin@example.com", "Other Payment College")
     assert client.get(f"/api/admin/events/{event['id']}/participants/pdf", headers=other_admin).status_code == 404
 
 
-def test_invalid_signature_releases_reserved_seat(client, monkeypatch):
-    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_key")
-    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "payment-test-secret")
-    order_ids = iter(["order_test_failed", "order_test_retry"])
-    monkeypatch.setattr(
-        "backend.services.payment_gateway.RazorpayGateway.create_order",
-        lambda self, amount_paise, receipt: {"id": next(order_ids)},
-    )
+def test_failed_demo_payment_releases_seat_and_allows_retry(client):
     admin_headers = _admin_headers(client, "failed-admin@example.com", "Failed College")
-    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1)).json()
+    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1, fee=75)).json()
     student_headers = _participant_headers(client, "failed-student@example.com")
-    order = client.post("/api/payments/create-order", headers=student_headers, json={"event_id": event["id"]}).json()
-    result = client.post(
-        "/api/payments/verify",
+
+    created = client.post(
+        "/api/payments/create-demo-payment",
         headers=student_headers,
-        json={
-            "razorpay_order_id": order["order_id"],
-            "razorpay_payment_id": "pay_bad",
-            "razorpay_signature": "invalid",
-        },
+        json={"event_id": event["id"]},
+    ).json()
+    failed = client.post(
+        "/api/payments/simulate",
+        headers=student_headers,
+        json={"payment_id": created["payment_id"], "outcome": "failed"},
     )
-    assert result.status_code == 400
+    assert failed.status_code == 200
+    assert failed.json()["payment_status"] == "Failed"
     assert client.get(f"/api/events/{event['id']}").json()["available_seats"] == 1
-    retry = client.post("/api/payments/create-order", headers=student_headers, json={"event_id": event["id"]})
+
+    retry = client.post(
+        "/api/payments/create-demo-payment",
+        headers=student_headers,
+        json={"event_id": event["id"]},
+    )
     assert retry.status_code == 200
+    assert retry.json()["payment_id"] != created["payment_id"]
+
+
+def test_duplicate_successful_payment_is_rejected(client):
+    admin_headers = _admin_headers(client, "duplicate-admin@example.com", "Duplicate College")
+    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=2, fee=50)).json()
+    student_headers = _participant_headers(client, "duplicate-student@example.com")
+    created = client.post(
+        "/api/payments/create-demo-payment",
+        headers=student_headers,
+        json={"event_id": event["id"]},
+    ).json()
+    assert client.post(
+        "/api/payments/simulate",
+        headers=student_headers,
+        json={"payment_id": created["payment_id"], "outcome": "successful"},
+    ).status_code == 200
+    duplicate = client.post(
+        "/api/payments/create-demo-payment",
+        headers=student_headers,
+        json={"event_id": event["id"]},
+    )
+    assert duplicate.status_code == 409

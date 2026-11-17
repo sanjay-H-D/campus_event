@@ -75,36 +75,29 @@ class BookingResponse(BaseModel):
     student_email: EmailStr | None = None
 
 
-class PaymentOrderRequest(BaseModel):
+class DemoPaymentCreateRequest(BaseModel):
     event_id: int = Field(gt=0)
 
 
-class PaymentOrderResponse(BaseModel):
+class DemoPaymentResponse(BaseModel):
     payment_id: int
     booking_id: int
-    order_id: str
+    payment_reference: str
     amount: float
-    amount_paise: int
     currency: str
-    key_id: str
     event: EventResponse
 
 
-class PaymentVerifyRequest(BaseModel):
-    razorpay_order_id: str = Field(min_length=1, max_length=100)
-    razorpay_payment_id: str = Field(min_length=1, max_length=100)
-    razorpay_signature: str = Field(min_length=1, max_length=200)
-
-
-class PaymentFailureRequest(BaseModel):
-    razorpay_order_id: str = Field(min_length=1, max_length=100)
+class DemoPaymentRequest(BaseModel):
+    payment_id: int = Field(gt=0)
+    outcome: str = Field(pattern=r"^(successful|failed)$")
 
 
 class PaymentResponse(BaseModel):
     id: int
     booking_id: int
     event_id: int
-    gateway_payment_id: str | None
+    payment_reference: str
     amount: float
     currency: str
     payment_status: str

@@ -92,10 +92,7 @@ class Booking(Base):
 
 class Payment(Base):
     __tablename__ = "payments"
-    __table_args__ = (
-        UniqueConstraint("gateway_order_id", name="uq_payment_gateway_order"),
-        UniqueConstraint("gateway_payment_id", name="uq_payment_gateway_payment"),
-    )
+    __table_args__ = (UniqueConstraint("payment_reference", name="uq_payment_reference"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), index=True)
@@ -103,11 +100,9 @@ class Payment(Base):
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     amount: Mapped[float] = mapped_column(Float)
     currency: Mapped[str] = mapped_column(String(3), default="INR")
-    payment_gateway: Mapped[str] = mapped_column(String(30), default="razorpay")
-    gateway_order_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    gateway_payment_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True, nullable=True)
+    payment_reference: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    payment_method: Mapped[str] = mapped_column(String(40), default="Demo Payment")
     payment_status: Mapped[str] = mapped_column(String(20), default="Pending", index=True)
-    payment_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
     transaction_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

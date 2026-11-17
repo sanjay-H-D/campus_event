@@ -11,7 +11,3 @@ class NotFoundError(Exception):
 
 class ValidationError(Exception):
     pass
-
-
-class ConfigurationError(Exception):
-    pass

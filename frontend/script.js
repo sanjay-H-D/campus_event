@@ -3,6 +3,7 @@ let token = localStorage.getItem("campusToken");
 let mode = "admin-login";
 let events = [];
 let currentUser;
+let pendingPayment;
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[char]));
 
@@ -67,30 +68,32 @@ async function book(id) {
     return;
   }
   try {
-    const order = await request("/payments/create-order", { method:"POST", body:JSON.stringify({ event_id:id }) });
-    if (!window.Razorpay) throw new Error("Razorpay Checkout could not be loaded.");
-    const checkout = new Razorpay({
-      key: order.key_id, amount: order.amount_paise, currency: order.currency, name: "Campus Event Ticketing Engine",
-      description: order.event.event_name, order_id: order.order_id,
-      handler: async (result) => {
-        try {
-          await request("/payments/verify", { method:"POST", body:JSON.stringify(result) });
-          toast("Payment successful. Booking confirmed."); await loadEvents(); await loadBookings(); await loadPayments();
-        } catch (error) { toast(error.message); }
-      },
-      modal: { ondismiss: async () => { try { await request("/payments/fail", { method:"POST", body:JSON.stringify({ razorpay_order_id:order.order_id }) }); toast("Payment cancelled. You can retry safely."); } catch (error) { toast(`Payment cancellation could not be recorded: ${error.message}`); } } },
-      prefill: { name: currentUser.full_name }
-    });
-    checkout.open();
+    pendingPayment = await request("/payments/create-demo-payment", { method:"POST", body:JSON.stringify({ event_id:id }) });
+    $("demoPaymentSummary").textContent = `${pendingPayment.event.event_name} · ${pendingPayment.currency} ${pendingPayment.amount.toFixed(2)} · Reference ${pendingPayment.payment_reference}`;
+    $("demoPaymentStatus").textContent = "Choose a simulated result. This is not a real payment.";
+    $("demoPaymentModal").classList.remove("hidden");
   } catch (error) { toast(error.message); }
 }
+async function simulatePayment(outcome) {
+  if (!pendingPayment) return;
+  $("simulateSuccess").disabled = true; $("simulateFailure").disabled = true;
+  try {
+    const payment = await request("/payments/simulate", { method:"POST", body:JSON.stringify({ payment_id:pendingPayment.payment_id, outcome }) });
+    toast(payment.payment_status === "Successful" ? "Payment successful. Booking confirmed." : "Payment failed. You can retry.");
+    closeDemoPayment(); await loadEvents(); await loadBookings(); await loadPayments();
+  } catch (error) {
+    $("demoPaymentStatus").textContent = error.message;
+    $("simulateSuccess").disabled = false; $("simulateFailure").disabled = false;
+  }
+}
+function closeDemoPayment() { pendingPayment = null; $("demoPaymentModal").classList.add("hidden"); $("simulateSuccess").disabled = false; $("simulateFailure").disabled = false; }
 async function loadBookings() {
   const bookings = await request("/participant/bookings");
   $("bookingList").innerHTML = bookings.length ? bookings.map((booking) => `<div class="booking"><strong>${escapeHtml(booking.booking_reference)}</strong><span>${escapeHtml(booking.event.event_name)} · ${escapeHtml(booking.college.college_name)} · ${escapeHtml(booking.booking_status)}</span></div>`).join("") : "<p class='muted'>No bookings yet.</p>";
 }
 async function loadPayments() {
   const payments = await request("/payments/my-payments");
-  $("paymentList").innerHTML = payments.length ? payments.map((payment) => `<div class="booking"><strong>${escapeHtml(payment.event.event_name)}</strong><span>${escapeHtml(payment.gateway_payment_id || "Pending")} · ₹${payment.amount} · ${escapeHtml(payment.payment_status)} ${payment.payment_status === "Successful" ? `<a class="button outline" href="#" onclick="downloadPdf('/participant/receipts/${payment.id}/download', 'payment-receipt-${payment.id}.pdf'); return false;">Download receipt</a>` : ""}</span></div>`).join("") : "<p class='muted'>No payments yet.</p>";
+  $("paymentList").innerHTML = payments.length ? payments.map((payment) => `<div class="booking"><strong>${escapeHtml(payment.event.event_name)}</strong><span>${escapeHtml(payment.payment_reference)} · ₹${payment.amount} · ${escapeHtml(payment.payment_status)} ${payment.payment_status === "Successful" ? `<a class="button outline" href="#" onclick="downloadPdf('/participant/receipts/${payment.id}/download', 'payment-receipt-${payment.id}.pdf'); return false;">Download receipt</a>` : ""}</span></div>`).join("") : "<p class='muted'>No payments yet.</p>";
 }
 async function downloadPdf(path, filename) {
   try {
@@ -102,7 +105,7 @@ async function downloadPdf(path, filename) {
 }
 async function loadAdminEvents() {
   const adminEvents = await request("/admin/events");
-  $("adminEvents").innerHTML = adminEvents.length ? adminEvents.map((event) => `<div class="admin-event"><span><strong>${escapeHtml(event.event_name)}</strong><small>${escapeHtml(event.event_date)} · ${escapeHtml(event.event_time)} · ${escapeHtml(event.duration)} · ${event.available_seats}/${event.maximum_seats} seats</small></span><button class="button outline" onclick="editEvent(${event.id})">Edit</button><button class="button outline" onclick="participants(${event.id})">Participants</button><button class="button danger" onclick="removeEvent(${event.id})">Delete</button></div>`).join("") : "<p class='muted'>No events available at the moment.</p>";
+  $("adminEvents").innerHTML = adminEvents.length ? adminEvents.map((event) => `<div class="admin-event"><span><strong>${escapeHtml(event.event_name)}</strong><small>${escapeHtml(event.event_date)} · ${escapeHtml(event.event_time)} · ${escapeHtml(event.duration)} · ${event.available_seats}/${event.maximum_seats} seats</small></span><button class="button outline" onclick="editEvent(${event.id})">Edit</button><button class="button outline" onclick="participants(${event.id})">Participants</button><button class="button outline" onclick="downloadPdf('/admin/events/${event.id}/participants/pdf', 'participants-${event.id}.pdf'); return false;">Download participants PDF</button><button class="button danger" onclick="removeEvent(${event.id})">Delete</button></div>`).join("") : "<p class='muted'>No events available at the moment.</p>";
 }
 async function editEvent(id) { const event = await request(`/admin/events/${id}`); $("eventId").value = id; $("eventName").value = event.event_name; $("description").value = event.description; $("eventDateAdmin").value = event.event_date; $("eventTime").value = event.event_time; $("duration").value = event.duration; $("venue").value = event.venue; $("eventCategory").value = event.category; $("fee").value = event.registration_fee; $("maximumSeats").value = event.maximum_seats; $("cancelEdit").classList.remove("hidden"); }
 async function saveEvent(event) { event.preventDefault(); const id = $("eventId").value; const body = { event_name:$("eventName").value, description:$("description").value, event_date:$("eventDateAdmin").value, event_time:$("eventTime").value, duration:$("duration").value, venue:$("venue").value, category:$("eventCategory").value, registration_fee:Number($("fee").value), maximum_seats:Number($("maximumSeats").value) }; try { await request(`/admin/events${id ? `/${id}` : ""}`, { method:id ? "PUT" : "POST", body:JSON.stringify(body) }); $("eventForm").reset(); $("eventId").value = ""; $("cancelEdit").classList.add("hidden"); toast("Event published."); loadAdminEvents(); } catch (error) { toast(error.message); } }
@@ -118,6 +121,7 @@ document.querySelectorAll(".auth-option").forEach((button) => button.addEventLis
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
 $("authSwitch").addEventListener("click", () => setMode(`${mode.startsWith("admin") ? "admin" : "participant"}-${mode.endsWith("register") ? "login" : "register"}`));
 $("authForm").addEventListener("submit", authSubmit); $("closeModal").addEventListener("click", () => $("modal").classList.add("hidden")); $("logout").addEventListener("click", () => logout()); $("eventForm").addEventListener("submit", saveEvent);
+$("closeDemoPayment").addEventListener("click", closeDemoPayment); $("simulateSuccess").addEventListener("click", () => simulatePayment("successful")); $("simulateFailure").addEventListener("click", () => simulatePayment("failed"));
 $("cancelEdit").addEventListener("click", () => { $("eventForm").reset(); $("eventId").value = ""; $("cancelEdit").classList.add("hidden"); });
 ["eventSearch","category","eventDate"].forEach((id) => $(id).addEventListener("change", loadEvents));
 if (token) loadDashboard();

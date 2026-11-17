@@ -30,7 +30,7 @@ def _paragraph(value: object, style: str = "BodyText") -> Paragraph:
 
 
 def payment_receipt(payment: Payment) -> bytes:
-    if payment.payment_status != "Successful" or payment.gateway_payment_id is None:
+    if payment.payment_status != "Successful":
         raise ValidationError("A receipt is available only for successful payments.")
     event = payment.event
     student = payment.student
@@ -52,10 +52,10 @@ def payment_receipt(payment: Payment) -> bytes:
         ("Event date", event.event_date),
         ("Venue", event.venue),
         ("Booking ID", payment.booking.booking_reference),
-        ("Payment ID", payment.gateway_payment_id),
+        ("Payment reference", payment.payment_reference),
         ("Registration fee", f"{payment.currency} {payment.amount:.2f}"),
         ("Payment date", payment.transaction_date.isoformat(sep=" ") if payment.transaction_date else ""),
-        ("Payment method", payment.payment_method or "Razorpay"),
+        ("Payment method", payment.payment_method),
         ("Status", "SUCCESSFUL"),
     ]
     table = Table([[Paragraph(f"<b>{key}</b>"), Paragraph(value)] for key, value in rows], colWidths=[45 * mm, 115 * mm])

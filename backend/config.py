@@ -16,5 +16,3 @@ def get_setting(name: str, default: str = "") -> str:
 
 DATABASE_URL = get_setting("DATABASE_URL", "sqlite:///./campus_event_engine.db")
 SECRET_KEY = get_setting("SECRET_KEY")
-RAZORPAY_KEY_ID = get_setting("RAZORPAY_KEY_ID")
-RAZORPAY_KEY_SECRET = get_setting("RAZORPAY_KEY_SECRET")

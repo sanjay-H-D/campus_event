@@ -9,7 +9,6 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from .config import get_setting
 from .database import get_db
 from .database.initialization import initialize_database
 from .database.models import Admin, Booking, College, Event, Student
@@ -21,11 +20,10 @@ from .schemas import (
     EventCreate,
     EventResponse,
     LoginCredentials,
-    PaymentOrderRequest,
-    PaymentOrderResponse,
-    PaymentFailureRequest,
+    DemoPaymentCreateRequest,
+    DemoPaymentRequest,
+    DemoPaymentResponse,
     PaymentResponse,
-    PaymentVerifyRequest,
     ParticipantProfile,
     StudentRegister,
 )
@@ -33,7 +31,6 @@ from .services.auth_service import AuthService
 from .services.booking_service import BookingService
 from .services.event_service import EventService
 from .services.exceptions import ConflictError, NotFoundError, ValidationError
-from .services.exceptions import ConfigurationError
 from .services.payment_service import PaymentService
 from .services.pdf_service import participant_list, payment_receipt
 
@@ -85,8 +82,6 @@ def handle_service_error(error: Exception) -> None:
         raise HTTPException(status_code=404, detail=str(error)) from error
     if isinstance(error, ValidationError):
         raise HTTPException(status_code=400, detail=str(error)) from error
-    if isinstance(error, ConfigurationError):
-        raise HTTPException(status_code=503, detail=str(error)) from error
     raise error
 
 
@@ -276,7 +271,7 @@ def event_participants(
     try:
         event, bookings = BookingService(db).participants(admin, event_id, offset, limit)
         payments = PaymentService(db).payments.list_for_event(event.id)
-    except (ConflictError, NotFoundError, ValidationError, ConfigurationError) as error:
+    except (ConflictError, NotFoundError, ValidationError) as error:
         handle_service_error(error)
     payment_by_booking = {item.booking_id: item for item in payments}
     return {
@@ -304,7 +299,7 @@ def download_participant_list(
         event, payments = PaymentService(db).list_for_admin_event(admin.college_id, event_id)
         _, bookings = BookingService(db).participants(admin, event_id, 0, 100000)
         document = participant_list(event, bookings, payments)
-    except (ConflictError, NotFoundError, ValidationError, ConfigurationError) as error:
+    except (ConflictError, NotFoundError, ValidationError) as error:
         handle_service_error(error)
     safe_event_name = "".join(char if char.isalnum() else "-" for char in event.event_name).strip("-").lower()
     return Response(
@@ -333,7 +328,7 @@ def payment_response(payment) -> dict:
         "id": payment.id,
         "booking_id": payment.booking_id,
         "event_id": payment.event_id,
-        "gateway_payment_id": payment.gateway_payment_id,
+        "payment_reference": payment.payment_reference,
         "amount": payment.amount,
         "currency": payment.currency,
         "payment_status": payment.payment_status,
@@ -343,55 +338,35 @@ def payment_response(payment) -> dict:
     }
 
 
-@app.post("/api/payments/create-order", response_model=PaymentOrderResponse)
-def create_payment_order(
-    payload: PaymentOrderRequest,
+@app.post("/api/payments/create-demo-payment", response_model=DemoPaymentResponse)
+def create_demo_payment(
+    payload: DemoPaymentCreateRequest,
     student: Annotated[Student, Depends(require_participant)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     try:
-        payment, event = PaymentService(db).create_order(student, payload.event_id)
-    except (ConflictError, NotFoundError, ValidationError, ConfigurationError) as error:
+        payment, event = PaymentService(db).create_demo_payment(student, payload.event_id)
+    except (ConflictError, NotFoundError, ValidationError) as error:
         handle_service_error(error)
     return {
         "payment_id": payment.id,
         "booking_id": payment.booking_id,
-        "order_id": payment.gateway_order_id,
+        "payment_reference": payment.payment_reference,
         "amount": payment.amount,
-        "amount_paise": PaymentService._amount_paise(payment.amount),
         "currency": payment.currency,
-        "key_id": get_setting("RAZORPAY_KEY_ID"),
         "event": event_response(event),
     }
 
 
-@app.post("/api/payments/verify", response_model=PaymentResponse)
-def verify_payment(
-    payload: PaymentVerifyRequest,
+@app.post("/api/payments/simulate", response_model=PaymentResponse)
+def simulate_payment(
+    payload: DemoPaymentRequest,
     student: Annotated[Student, Depends(require_participant)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     try:
-        payment = PaymentService(db).verify(
-            student,
-            payload.razorpay_order_id,
-            payload.razorpay_payment_id,
-            payload.razorpay_signature,
-        )
-    except (ConflictError, NotFoundError, ValidationError, ConfigurationError) as error:
-        handle_service_error(error)
-    return payment_response(payment)
-
-
-@app.post("/api/payments/fail", response_model=PaymentResponse)
-def fail_payment(
-    payload: PaymentFailureRequest,
-    student: Annotated[Student, Depends(require_participant)],
-    db: Annotated[Session, Depends(get_db)],
-) -> dict:
-    try:
-        payment = PaymentService(db).fail(student, payload.razorpay_order_id)
-    except (ConflictError, NotFoundError, ValidationError, ConfigurationError) as error:
+        payment = PaymentService(db).simulate(student, payload.payment_id, payload.outcome)
+    except (ConflictError, NotFoundError, ValidationError) as error:
         handle_service_error(error)
     return payment_response(payment)
 
@@ -408,7 +383,7 @@ def receipt_download(payment_id: int, student: Student, db: Session) -> Response
     try:
         payment = PaymentService(db).get_owned_payment(student, payment_id)
         document = payment_receipt(payment)
-    except (ConflictError, NotFoundError, ValidationError, ConfigurationError) as error:
+    except (ConflictError, NotFoundError, ValidationError) as error:
         handle_service_error(error)
     return Response(
         content=document,
