@@ -1,5 +1,7 @@
 from .test_auth import admin_payload, participant_payload
 from .test_events import event_payload
+from backend.database.models import Payment
+from backend.database.session import SessionLocal
 
 
 def _admin_headers(client, email="payment-admin@example.com", college="Payment College"):
@@ -67,6 +69,8 @@ def test_failed_demo_payment_releases_seat_and_allows_retry(client):
     )
     assert failed.status_code == 200
     assert failed.json()["payment_status"] == "Failed"
+    booking = client.get("/api/participant/bookings", headers=student_headers)
+    assert booking.json()[0]["booking_status"] == "payment_failed"
     assert client.get(f"/api/events/{event['id']}").json()["available_seats"] == 1
 
     retry = client.post(
@@ -76,6 +80,59 @@ def test_failed_demo_payment_releases_seat_and_allows_retry(client):
     )
     assert retry.status_code == 200
     assert retry.json()["payment_id"] != created["payment_id"]
+    assert client.get(f"/api/events/{event['id']}").json()["available_seats"] == 0
+
+    successful_retry = client.post(
+        "/api/payments/simulate",
+        headers=student_headers,
+        json={"payment_id": retry.json()["payment_id"], "outcome": "successful"},
+    )
+    assert successful_retry.status_code == 200
+    assert successful_retry.json()["payment_status"] == "Successful"
+    assert client.get(f"/api/events/{event['id']}").json()["available_seats"] == 0
+
+
+def test_invalid_demo_payment_outcome_is_rejected(client):
+    admin_headers = _admin_headers(client, "validation-admin@example.com", "Validation College")
+    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1, fee=75)).json()
+    student_headers = _participant_headers(client, "validation-student@example.com")
+    created = client.post(
+        "/api/payments/create-demo-payment",
+        headers=student_headers,
+        json={"event_id": event["id"]},
+    ).json()
+    result = client.post(
+        "/api/payments/simulate",
+        headers=student_headers,
+        json={"payment_id": created["payment_id"], "outcome": "unknown"},
+    )
+    assert result.status_code == 422
+
+
+def test_missing_pending_payment_does_not_double_decrement_seats(client):
+    admin_headers = _admin_headers(client, "stale-admin@example.com", "Stale College")
+    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1, fee=75)).json()
+    student_headers = _participant_headers(client, "stale-student@example.com")
+    created = client.post(
+        "/api/payments/create-demo-payment",
+        headers=student_headers,
+        json={"event_id": event["id"]},
+    ).json()
+
+    db = SessionLocal()
+    try:
+        db.query(Payment).filter(Payment.id == created["payment_id"]).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    retry = client.post(
+        "/api/payments/create-demo-payment",
+        headers=student_headers,
+        json={"event_id": event["id"]},
+    )
+    assert retry.status_code == 200
+    assert client.get(f"/api/events/{event['id']}").json()["available_seats"] == 0
 
 
 def test_duplicate_successful_payment_is_rejected(client):
