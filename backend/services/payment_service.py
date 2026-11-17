@@ -43,6 +43,7 @@ class PaymentService:
             raise ValidationError("This event is free. Use the standard booking option.")
 
         existing = self.bookings.get_for_student_event_with_event(student.id, event_id)
+        reuse_reservation = False
         if existing is not None:
             if existing.booking_status == "confirmed":
                 raise ConflictError("You have already booked this event.")
@@ -51,8 +52,9 @@ class PaymentService:
                 if payment is not None:
                     self.db.commit()
                     return payment, event
+                reuse_reservation = True
 
-        if not self.bookings.reserve_seat(event.id):
+        if not reuse_reservation and not self.bookings.reserve_seat(event.id):
             self.db.rollback()
             raise ConflictError("This event has no available seats.")
 
@@ -84,6 +86,8 @@ class PaymentService:
         return payment, event
 
     def simulate(self, student: Student, payment_id: int, outcome: str) -> Payment:
+        if outcome not in {"successful", "failed"}:
+            raise ValidationError("Payment outcome must be successful or failed.")
         self._release_expired()
         payment = self.payments.get(payment_id)
         if payment is None or payment.student_id != student.id:
