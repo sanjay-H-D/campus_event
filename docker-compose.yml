@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in the project .env file}
+      DATABASE_URL: sqlite:////app/campus_event_engine.db
+    volumes:
+      - ./campus_event_engine.db:/app/campus_event_engine.db
+    restart: unless-stopped
