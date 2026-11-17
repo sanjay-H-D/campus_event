@@ -60,6 +60,7 @@ class EventResponse(EventCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
     college_id: int
+    college_name: str | None = None
     available_seats: int
 
 
@@ -72,6 +73,44 @@ class BookingResponse(BaseModel):
     college: CollegeResponse
     student_name: str | None = None
     student_email: EmailStr | None = None
+
+
+class PaymentOrderRequest(BaseModel):
+    event_id: int = Field(gt=0)
+
+
+class PaymentOrderResponse(BaseModel):
+    payment_id: int
+    booking_id: int
+    order_id: str
+    amount: float
+    amount_paise: int
+    currency: str
+    key_id: str
+    event: EventResponse
+
+
+class PaymentVerifyRequest(BaseModel):
+    razorpay_order_id: str = Field(min_length=1, max_length=100)
+    razorpay_payment_id: str = Field(min_length=1, max_length=100)
+    razorpay_signature: str = Field(min_length=1, max_length=200)
+
+
+class PaymentFailureRequest(BaseModel):
+    razorpay_order_id: str = Field(min_length=1, max_length=100)
+
+
+class PaymentResponse(BaseModel):
+    id: int
+    booking_id: int
+    event_id: int
+    gateway_payment_id: str | None
+    amount: float
+    currency: str
+    payment_status: str
+    payment_method: str | None
+    transaction_date: str | None
+    event: EventResponse
 
 
 class ParticipantProfile(BaseModel):

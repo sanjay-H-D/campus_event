@@ -6,7 +6,7 @@ def test_duplicate_and_capacity_booking(client):
     client.post("/api/admin/register", json=admin_payload("owner@example.com", "Booking College"))
     admin_login = client.post("/api/admin/login", json={"email": "owner@example.com", "password": "StrongPass123"})
     admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
-    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1)).json()
+    event = client.post("/api/admin/events", headers=admin_headers, json=event_payload(seats=1, fee=0)).json()
     client.post("/api/participant/register", json=participant_payload("first@example.com"))
     first_login = client.post("/api/participant/login", json={"email": "first@example.com", "password": "StrongPass123"})
     first_headers = {"Authorization": f"Bearer {first_login.json()['access_token']}"}

@@ -7,7 +7,7 @@ def login_admin(client, email: str, college: str) -> dict:
     return {"Authorization": f"Bearer {result.json()['access_token']}"}
 
 
-def event_payload(name="Campus Workshop", seats=2):
+def event_payload(name="Campus Workshop", seats=2, fee=25):
     return {
         "event_name": name,
         "description": "A test event",
@@ -16,7 +16,7 @@ def event_payload(name="Campus Workshop", seats=2):
         "duration": "2 hours",
         "venue": "Main Hall",
         "category": "Workshop",
-        "registration_fee": 25,
+        "registration_fee": fee,
         "maximum_seats": seats,
     }
 

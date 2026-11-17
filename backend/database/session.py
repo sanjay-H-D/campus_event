@@ -1,14 +1,11 @@
-"""Database setup for the Campus Event Ticketing Engine."""
+"""SQLAlchemy engine, declarative base, and request-scoped sessions."""
 
-import os
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-# The v2 schema is kept in a new file so an older single-college database is
-# preserved instead of being silently altered or losing existing bookings.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./campus_event_engine.db")
+from ..config import DATABASE_URL
 
 engine = create_engine(
     DATABASE_URL,
