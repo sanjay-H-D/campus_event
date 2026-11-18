@@ -7,6 +7,16 @@ from .session import engine
 
 
 def initialize_database() -> None:
+    dialect = engine.dialect.name
+    if dialect == "sqlite":
+        initialize_sqlite_database()
+        return
+    if dialect == "postgresql":
+        return
+    raise RuntimeError(f"Unsupported database dialect: {dialect}")
+
+
+def initialize_sqlite_database() -> None:
     """Create missing tables and apply additive migrations for existing databases."""
     migrate_legacy_payment_table()
     Base.metadata.create_all(bind=engine)
@@ -18,6 +28,13 @@ def initialize_database() -> None:
         for table, (column, definition) in migrations.items():
             if column not in {item["name"] for item in inspect(engine).get_columns(table)}:
                 connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
+
+
+def initialize_postgresql_database() -> None:
+    """Create the database schema only when using a PostgreSQL engine."""
+    if engine.dialect.name != "postgresql":
+        raise RuntimeError("PostgreSQL database initialization requires a PostgreSQL engine.")
+    Base.metadata.create_all(bind=engine)
 
 
 def migrate_legacy_payment_table() -> None:

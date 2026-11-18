@@ -3,14 +3,20 @@
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from ..config import DATABASE_URL
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False},
-)
+database_url = make_url(DATABASE_URL)
+if database_url.drivername in {"postgres", "postgresql"}:
+    database_url = database_url.set(drivername="postgresql+psycopg")
+
+engine_options = {}
+if database_url.get_backend_name() == "sqlite":
+    engine_options["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(database_url, **engine_options)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
