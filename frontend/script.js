@@ -1,4 +1,6 @@
-const API = window.location.port === "8000" ? "/api" : "http://127.0.0.1:8000/api";
+const API = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  ? (window.location.port === "8000" ? "/api" : "http://127.0.0.1:8000/api")
+  : "/api";
 let token = localStorage.getItem("campusToken");
 let mode = "admin-login";
 let events = [];
